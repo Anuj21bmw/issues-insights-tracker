@@ -1,0 +1,15 @@
+{
+    "name": "FastAPI Container",
+    "dockerComposeFile": "../docker-compose.yml",
+    "service": "tracker-backend",         // 👈 your service name in docker-compose.yml
+    "workspaceFolder": "/app",            // 👈 where app code lives inside container
+    "settings": {
+      "python.defaultInterpreterPath": "/usr/local/bin/python"
+    },
+    "extensions": [
+      "ms-python.python",
+      "ms-python.vscode-pylance"
+    ],
+    "remoteUser": "root"
+  }
+  
