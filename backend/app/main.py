@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth  # ✅ import auth router
+from app.api import auth
 
 app = FastAPI(title="Issues & Insights Tracker")
 
@@ -12,7 +12,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)  
+
+app.include_router(auth.router, prefix="/api")
 
 @app.get("/")
 def root():
