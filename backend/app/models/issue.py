@@ -1,18 +1,17 @@
-# backend/app/models/issue.py
-
+# backend/app/models/issue.py - Fixed circular import
 from sqlalchemy import Column, String, Text, Enum, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from app.db.base import Base
+from app.db.base_class import Base  # Import from base_class, not base
 from datetime import datetime
 import uuid
 import enum
 
 class IssueStatus(str, enum.Enum):
     OPEN = "OPEN"
-    TRIAGED = "TRIAGED"
     IN_PROGRESS = "IN_PROGRESS"
-    DONE = "DONE"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
 
 class IssueSeverity(str, enum.Enum):
     LOW = "LOW"
@@ -28,12 +27,12 @@ class Issue(Base):
     description = Column(Text)
     status = Column(Enum(IssueStatus), default=IssueStatus.OPEN)
     severity = Column(Enum(IssueSeverity), default=IssueSeverity.MEDIUM)
-    file_path = Column(String, nullable=True)  # For file uploads
-    tags = Column(String, nullable=True)  # Comma-separated tags
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    creator = relationship("User", foreign_keys=[created_by])
-    assignee = relationship("User", foreign_keys=[assigned_to])
+    # Use string reference to avoid circular import
+    creator = relationship("User", back_populates="issues")
+    
+    def __repr__(self):
+        return f"<Issue(id={self.id}, title={self.title}, status={self.status})>"

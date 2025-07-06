@@ -1,129 +1,86 @@
-<!-- frontend/src/routes/issues/+page.svelte -->
+<!-- src/routes/issues/+page.svelte - Fixed CSS line-clamp issue -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import { authStore } from '$lib/stores/auth';
-    import { websocketStore } from '$lib/stores/websocket';
     import { toastStore } from '$lib/stores/toast';
+    import { apiClient } from '$lib/api/client';
     import { goto } from '$app/navigation';
-    
-    interface Issue {
-      id: string;
-      title: string;
-      description?: string;
-      status: 'OPEN' | 'TRIAGED' | 'IN_PROGRESS' | 'DONE';
-      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-      created_at: string;
-      updated_at: string;
-      created_by: string;
-      assigned_to?: string;
-      tags?: string;
-      file_path?: string;
-    }
+    import type { Issue } from '$lib/types';
     
     let issues: Issue[] = [];
-    let filteredIssues: Issue[] = [];
     let loading = true;
-    let error = '';
+    let searchTerm = '';
+    let statusFilter: string = 'all';
+    let sortBy: 'created_at' | 'title' | 'status' = 'created_at';
+    let sortOrder: 'asc' | 'desc' = 'desc';
     
-    // Filters
-    let statusFilter = '';
-    let severityFilter = '';
-    let searchQuery = '';
-    
+    $: isAuthenticated = $authStore.isAuthenticated;
     $: user = $authStore.user;
-    $: token = $authStore.token;
     
-    // Apply filters
-    $: {
-      filteredIssues = issues.filter(issue => {
-        const matchesStatus = !statusFilter || issue.status === statusFilter;
-        const matchesSeverity = !severityFilter || issue.severity === severityFilter;
-        const matchesSearch = !searchQuery || 
-          issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          issue.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          issue.tags?.toLowerCase().includes(searchQuery.toLowerCase());
-        
-        return matchesStatus && matchesSeverity && matchesSearch;
+    // Filtered and sorted issues
+    $: filteredIssues = issues
+      .filter(issue => {
+        const matchesSearch = issue.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                             (issue.description && issue.description.toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchesStatus = statusFilter === 'all' || issue.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => {
+        let comparison = 0;
+        if (sortBy === 'created_at') {
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        } else if (sortBy === 'title') {
+          comparison = a.title.localeCompare(b.title);
+        } else if (sortBy === 'status') {
+          comparison = a.status.localeCompare(b.status);
+        }
+        return sortOrder === 'desc' ? -comparison : comparison;
       });
-    }
     
-    onMount(() => {
-      loadIssues();
+    onMount(async () => {
+      if (!isAuthenticated) {
+        goto('/auth/login');
+        return;
+      }
       
-      // Listen for real-time updates
-      const handleIssueCreated = (event: CustomEvent) => {
-        issues = [event.detail, ...issues];
-        toastStore.success('New issue created');
-      };
-      
-      const handleIssueUpdated = (event: CustomEvent) => {
-        const updatedIssue = event.detail;
-        issues = issues.map(issue => 
-          issue.id === updatedIssue.id ? updatedIssue : issue
-        );
-        toastStore.info('Issue updated');
-      };
-      
-      const handleIssueDeleted = (event: CustomEvent) => {
-        const { id } = event.detail;
-        issues = issues.filter(issue => issue.id !== id);
-        toastStore.warning('Issue deleted');
-      };
-      
-      window.addEventListener('issue-created', handleIssueCreated as EventListener);
-      window.addEventListener('issue-updated', handleIssueUpdated as EventListener);
-      window.addEventListener('issue-deleted', handleIssueDeleted as EventListener);
-      
-      return () => {
-        window.removeEventListener('issue-created', handleIssueCreated as EventListener);
-        window.removeEventListener('issue-updated', handleIssueUpdated as EventListener);
-        window.removeEventListener('issue-deleted', handleIssueDeleted as EventListener);
-      };
+      await loadIssues();
     });
     
     async function loadIssues() {
-      if (!token) return;
-      
       try {
         loading = true;
-        error = '';
+        const response = await apiClient.getIssues();
         
-        const response = await fetch('http://localhost:8000/api/issues', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        if (response.ok) {
-          issues = await response.json();
+        if (response.data) {
+          issues = response.data;
         } else {
-          error = 'Failed to load issues';
+          toastStore.error(response.error || 'Failed to load issues');
         }
-      } catch (err) {
-        error = 'Network error loading issues';
-        console.error('Issues error:', err);
+      } catch (error) {
+        console.error('Load issues error:', error);
+        toastStore.error('Network error. Please try again.');
       } finally {
         loading = false;
       }
     }
     
-    function getStatusColor(status: Issue['status']): string {
+    function getStatusColor(status: string): string {
       switch (status) {
-        case 'OPEN': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-        case 'TRIAGED': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-        case 'IN_PROGRESS': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-        case 'DONE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-        default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+        case 'OPEN': return 'bg-green-100 text-green-800';
+        case 'IN_PROGRESS': return 'bg-yellow-100 text-yellow-800';
+        case 'RESOLVED': return 'bg-blue-100 text-blue-800';
+        case 'CLOSED': return 'bg-gray-100 text-gray-800';
+        default: return 'bg-gray-100 text-gray-800';
       }
     }
     
-    function getSeverityColor(severity: Issue['severity']): string {
-      switch (severity) {
-        case 'LOW': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-        case 'MEDIUM': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-        case 'HIGH': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
-        case 'CRITICAL': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-        default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+    function getStatusIcon(status: string): string {
+      switch (status) {
+        case 'OPEN': return '🟢';
+        case 'IN_PROGRESS': return '🟡';
+        case 'RESOLVED': return '🔵';
+        case 'CLOSED': return '⚫';
+        default: return '⚪';
       }
     }
     
@@ -137,296 +94,223 @@
       });
     }
     
-    function viewIssue(issueId: string) {
-      goto(`/issues/${issueId}`);
+    function toggleSort(field: typeof sortBy) {
+      if (sortBy === field) {
+        sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortBy = field;
+        sortOrder = 'desc';
+      }
     }
     
-    function createIssue() {
+    function handleCreateIssue() {
       goto('/issues/create');
     }
     
-    function clearFilters() {
-      statusFilter = '';
-      severityFilter = '';
-      searchQuery = '';
-    }
-    
-    function truncateText(text: string, maxLength: number = 120): string {
-      if (text.length <= maxLength) return text;
-      return text.substring(0, maxLength) + '...';
+    function handleIssueClick(issue: Issue) {
+      goto(`/issues/${issue.id}`);
     }
   </script>
   
   <svelte:head>
-    <title>Issues - Issues & Insights Tracker</title>
+    <title>Issues - Issue Tracker</title>
   </svelte:head>
   
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Issues</h1>
-        <p class="text-gray-600 dark:text-gray-400 mt-1">
-          Manage and track all issues
-        </p>
-      </div>
-      
-      <button
-        on:click={createIssue}
-        class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
-      >
-        <span class="mr-2">➕</span>
-        Create Issue
-      </button>
-    </div>
-    
-    <!-- Filters -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <!-- Search -->
-        <div>
-          <label for="search" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Search
-          </label>
-          <input
-            id="search"
-            type="text"
-            bind:value={searchQuery}
-            placeholder="Search issues..."
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-        
-        <!-- Status Filter -->
-        <div>
-          <label for="status" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Status
-          </label>
-          <select
-            id="status"
-            bind:value={statusFilter}
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">All Statuses</option>
-            <option value="OPEN">Open</option>
-            <option value="TRIAGED">Triaged</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="DONE">Done</option>
-          </select>
-        </div>
-        
-        <!-- Severity Filter -->
-        <div>
-          <label for="severity" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Severity
-          </label>
-          <select
-            id="severity"
-            bind:value={severityFilter}
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">All Severities</option>
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-            <option value="CRITICAL">Critical</option>
-          </select>
-        </div>
-        
-        <!-- Clear Filters -->
-        <div class="flex items-end">
+  <div class="min-h-screen bg-gray-50">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+      <!-- Header -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-900">Issues</h1>
+            <p class="mt-2 text-gray-600">
+              Track and manage project issues and feature requests
+            </p>
+          </div>
           <button
-            on:click={clearFilters}
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+            type="button"
+            on:click={handleCreateIssue}
+            class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            Clear Filters
+            <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            New Issue
           </button>
         </div>
       </div>
-      
-      <!-- Filter Summary -->
-      {#if statusFilter || severityFilter || searchQuery}
-        <div class="mt-4 flex items-center space-x-2">
-          <span class="text-sm text-gray-500 dark:text-gray-400">Active filters:</span>
-          {#if searchQuery}
-            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
-              Search: {searchQuery}
-            </span>
-          {/if}
-          {#if statusFilter}
-            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
-              Status: {statusFilter}
-            </span>
-          {/if}
-          {#if severityFilter}
-            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">
-              Severity: {severityFilter}
-            </span>
-          {/if}
+  
+      <!-- Filters and Search -->
+      <div class="mb-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <!-- Search -->
+          <div>
+            <label for="search" class="block text-sm font-medium text-gray-700 mb-1">
+              Search Issues
+            </label>
+            <div class="relative">
+              <input
+                type="text"
+                id="search"
+                bind:value={searchTerm}
+                placeholder="Search by title or description..."
+                class="block w-full rounded-lg border-gray-300 pl-10 pr-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+              <div class="absolute inset-y-0 left-0 flex items-center pl-3">
+                <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+  
+          <!-- Status Filter -->
+          <div>
+            <label for="status-filter" class="block text-sm font-medium text-gray-700 mb-1">
+              Status
+            </label>
+            <select
+              id="status-filter"
+              bind:value={statusFilter}
+              class="block w-full rounded-lg border-gray-300 py-2 pl-3 pr-10 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="all">All Statuses</option>
+              <option value="OPEN">Open</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="RESOLVED">Resolved</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+          </div>
+  
+          <!-- Sort -->
+          <div>
+            <label for="sort" class="block text-sm font-medium text-gray-700 mb-1">
+              Sort By
+            </label>
+            <select
+              id="sort"
+              bind:value={sortBy}
+              class="block w-full rounded-lg border-gray-300 py-2 pl-3 pr-10 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="created_at">Date Created</option>
+              <option value="title">Title</option>
+              <option value="status">Status</option>
+            </select>
+          </div>
         </div>
-      {/if}
-    </div>
-    
-    <!-- Issues List -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+  
+        <!-- Stats -->
+        <div class="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
+          <div class="flex items-center space-x-4 text-sm text-gray-600">
+            <span>Total: {issues.length}</span>
+            <span>Filtered: {filteredIssues.length}</span>
+          </div>
+          <button
+            type="button"
+            on:click={() => sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'}
+            class="flex items-center text-sm text-gray-600 hover:text-gray-900"
+          >
+            Sort {sortOrder === 'asc' ? '↑' : '↓'}
+          </button>
+        </div>
+      </div>
+  
+      <!-- Issues List -->
       {#if loading}
         <div class="flex items-center justify-center py-12">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span class="ml-3 text-gray-600 dark:text-gray-400">Loading issues...</span>
-        </div>
-      {:else if error}
-        <div class="text-center py-12">
-          <div class="text-red-600 dark:text-red-400 mb-4">
-            <span class="text-4xl">❌</span>
+          <div class="text-center">
+            <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+            <p class="mt-4 text-gray-600">Loading issues...</p>
           </div>
-          <p class="text-red-800 dark:text-red-300 mb-4">{error}</p>
-          <button 
-            on:click={loadIssues}
-            class="text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Try again
-          </button>
         </div>
       {:else if filteredIssues.length === 0}
-        <div class="text-center py-12">
-          <div class="text-gray-400 mb-4">
-            <span class="text-6xl">📝</span>
-          </div>
+        <div class="rounded-lg bg-white p-12 shadow-sm ring-1 ring-gray-200 text-center">
           {#if issues.length === 0}
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">No issues yet</h3>
-            <p class="text-gray-600 dark:text-gray-400 mb-4">Get started by creating your first issue</p>
-            <button 
-              on:click={createIssue}
-              class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <h3 class="mt-4 text-lg font-medium text-gray-900">No issues yet</h3>
+            <p class="mt-2 text-gray-600">Get started by creating your first issue.</p>
+            <button
+              type="button"
+              on:click={handleCreateIssue}
+              class="mt-4 inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
             >
-              <span class="mr-2">➕</span>
               Create Issue
             </button>
           {:else}
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">No matching issues</h3>
-            <p class="text-gray-600 dark:text-gray-400 mb-4">Try adjusting your filters</p>
-            <button 
-              on:click={clearFilters}
-              class="text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              Clear all filters
-            </button>
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <h3 class="mt-4 text-lg font-medium text-gray-900">No issues found</h3>
+            <p class="mt-2 text-gray-600">Try adjusting your search or filter criteria.</p>
           {/if}
         </div>
       {:else}
-        <!-- Issues Header -->
-        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div class="flex items-center justify-between">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white">
-              {filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}
-            </h2>
-            <div class="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
-              <div class="w-2 h-2 rounded-full {$websocketStore.connected ? 'bg-green-500' : 'bg-red-500'}"></div>
-              <span>{$websocketStore.connected ? 'Live updates' : 'Offline'}</span>
+        <div class="space-y-4">
+          {#each filteredIssues as issue (issue.id)}
+            <div
+              class="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 hover:shadow-md transition-shadow cursor-pointer"
+              on:click={() => handleIssueClick(issue)}
+              role="button"
+              tabindex="0"
+              on:keydown={(e) => e.key === 'Enter' && handleIssueClick(issue)}
+            >
+              <div class="flex items-start justify-between">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center space-x-3">
+                    <h3 class="text-lg font-medium text-gray-900 truncate">
+                      {issue.title}
+                    </h3>
+                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {getStatusColor(issue.status)}">
+                      <span class="mr-1">{getStatusIcon(issue.status)}</span>
+                      {issue.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                  
+                  {#if issue.description}
+                    <p class="mt-2 text-sm text-gray-600 description-clamp">
+                      {issue.description}
+                    </p>
+                  {/if}
+                  
+                  <div class="mt-3 flex items-center space-x-4 text-sm text-gray-500">
+                    <span>#{issue.id.slice(0, 8)}</span>
+                    <span>Created {formatDate(issue.created_at)}</span>
+                    {#if issue.creator}
+                      <span>by {issue.creator.email}</span>
+                    {/if}
+                  </div>
+                </div>
+                
+                <div class="ml-4 flex-shrink-0">
+                  <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
             </div>
-          </div>
+          {/each}
         </div>
-        
-        <!-- Issues Table -->
-        <div class="overflow-hidden">
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead class="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Issue
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Severity
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Created
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Updated
-                  </th>
-                  <th class="relative px-6 py-3">
-                    <span class="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {#each filteredIssues as issue (issue.id)}
-                  <tr 
-                    class="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-150"
-                    on:click={() => viewIssue(issue.id)}
-                    on:keydown={(e) => e.key === 'Enter' && viewIssue(issue.id)}
-                    role="button"
-                    tabindex="0"
-                  >
-                    <td class="px-6 py-4">
-                      <div class="flex items-start space-x-3">
-                        <div class="flex-shrink-0">
-                          {#if issue.file_path}
-                            <span class="text-gray-400" title="Has attachment">📎</span>
-                          {:else}
-                            <span class="text-gray-300">📝</span>
-                          {/if}
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <p class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                            {issue.title}
-                          </p>
-                          {#if issue.description}
-                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                              {truncateText(issue.description)}
-                            </p>
-                          {/if}
-                          {#if issue.tags}
-                            <div class="mt-2 flex flex-wrap gap-1">
-                              {#each issue.tags.split(',').slice(0, 3) as tag}
-                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
-                                  {tag.trim()}
-                                </span>
-                              {/each}
-                              {#if issue.tags.split(',').length > 3}
-                                <span class="text-xs text-gray-500 dark:text-gray-400">
-                                  +{issue.tags.split(',').length - 3} more
-                                </span>
-                              {/if}
-                            </div>
-                          {/if}
-                        </div>
-                      </div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {getStatusColor(issue.status)}">
-                        {issue.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {getSeverityColor(issue.severity)}">
-                        {issue.severity}
-                      </span>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {formatDate(issue.created_at)}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {formatDate(issue.updated_at)}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        on:click|stopPropagation={() => viewIssue(issue.id)}
-                        class="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+  
+        <!-- Pagination (if needed later) -->
+        {#if filteredIssues.length > 0}
+          <div class="mt-8 flex items-center justify-center">
+            <p class="text-sm text-gray-700">
+              Showing {filteredIssues.length} of {issues.length} issues
+            </p>
           </div>
-        </div>
+        {/if}
       {/if}
     </div>
   </div>
+  
+  <style>
+    .description-clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  </style>

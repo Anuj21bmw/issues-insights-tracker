@@ -3,9 +3,11 @@
 	import { onMount } from 'svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { websocketStore } from '$lib/stores/websocket';
+	import { apiClient } from '$lib/api/client';
 	import Chart from '$lib/stores/components/Chart.svelte';
 	import StatsCard from '$lib/stores/components/StatsCard.svelte';
 	import RecentIssues from '$lib/stores/components/RecentIssues.svelte';
+	import { toastStore } from '$lib/stores/toast';
 	
 	interface SeverityData {
 	  severity: string;
@@ -34,9 +36,13 @@
 	let error = '';
 	
 	$: user = $authStore.user;
-	$: token = $authStore.token;
+	$: isAuthenticated = $authStore.isAuthenticated;
 	
 	onMount(() => {
+	  if (!isAuthenticated) {
+		return; // Will be redirected by layout
+	  }
+	  
 	  loadDashboardData();
 	  
 	  // Listen for real-time updates
@@ -56,26 +62,22 @@
 	});
 	
 	async function loadDashboardData() {
-	  if (!token) return;
-	  
 	  try {
 		loading = true;
 		error = '';
 		
-		const response = await fetch('http://localhost:8000/api/issues/stats/dashboard', {
-		  headers: {
-			'Authorization': `Bearer ${token}`
-		  }
-		});
+		const response = await apiClient.getDashboardStats();
 		
-		if (response.ok) {
-		  dashboardData = await response.json();
+		if (response.data) {
+		  dashboardData = response.data;
 		} else {
-		  error = 'Failed to load dashboard data';
+		  error = response.error || 'Failed to load dashboard data';
+		  toastStore.error(error);
 		}
 	  } catch (err) {
 		error = 'Network error loading dashboard';
 		console.error('Dashboard error:', err);
+		toastStore.error(error);
 	  } finally {
 		loading = false;
 	  }
@@ -130,8 +132,13 @@
 		<div>
 		  <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
 		  <p class="text-gray-600 dark:text-gray-400 mt-1">
-			Welcome back, {user?.name || user?.email}
+			Welcome back, {user?.role || user?.email}
 		  </p>
+		  <div class="flex items-center space-x-2 mt-2">
+			<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+			  {user?.role}
+			</span>
+		  </div>
 		</div>
 		<div class="flex items-center space-x-2">
 		  <div class="w-3 h-3 rounded-full {$websocketStore.connected ? 'bg-green-500' : 'bg-red-500'}"></div>
@@ -168,24 +175,28 @@
 		  value={dashboardData.total_open}
 		  icon="🐛"
 		  trend="neutral"
+		  href="/issues?status=OPEN"
 		/>
 		<StatsCard
 		  title="Critical Issues"
 		  value={findChartValue(severityChartData, 'CRITICAL')}
 		  icon="🚨"
 		  trend="warning"
+		  href="/issues?severity=CRITICAL"
 		/>
 		<StatsCard
 		  title="In Progress"
 		  value={findChartValue(statusChartData, 'IN_PROGRESS')}
 		  icon="⚡"
 		  trend="info"
+		  href="/issues?status=IN_PROGRESS"
 		/>
 		<StatsCard
 		  title="Completed"
 		  value={findChartValue(statusChartData, 'DONE')}
 		  icon="✅"
 		  trend="positive"
+		  href="/issues?status=DONE"
 		/>
 	  </div>
   
@@ -201,12 +212,16 @@
 			  data={severityChartData}
 			  type="doughnut"
 			  height="300"
+			  title="Issues by Severity"
 			/>
 		  {:else}
 			<div class="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
 			  <div class="text-center">
 				<span class="text-4xl mb-2 block">📊</span>
 				<p>No severity data available</p>
+				<a href="/issues/create" class="text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-block">
+				  Create your first issue
+				</a>
 			  </div>
 			</div>
 		  {/if}
@@ -222,12 +237,16 @@
 			  data={statusChartData}
 			  type="bar"
 			  height="300"
+			  title="Issues by Status"
 			/>
 		  {:else}
 			<div class="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
 			  <div class="text-center">
 				<span class="text-4xl mb-2 block">📈</span>
 				<p>No status data available</p>
+				<a href="/issues/create" class="text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-block">
+				  Create your first issue
+				</a>
 			  </div>
 			</div>
 		  {/if}
@@ -237,7 +256,15 @@
 	  <!-- Recent Issues -->
 	  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
 		<div class="p-6 border-b border-gray-200 dark:border-gray-700">
-		  <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Recent Issues</h2>
+		  <div class="flex items-center justify-between">
+			<h2 class="text-xl font-semibold text-gray-900 dark:text-white">Recent Issues</h2>
+			<a 
+			  href="/issues" 
+			  class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
+			>
+			  View all →
+			</a>
+		  </div>
 		</div>
 		<RecentIssues />
 	  </div>
@@ -247,6 +274,12 @@
 		  <span class="text-yellow-600 dark:text-yellow-400 mr-2">⚠️</span>
 		  <span class="text-yellow-800 dark:text-yellow-300">No dashboard data available</span>
 		</div>
+		<button 
+		  on:click={loadDashboardData}
+		  class="mt-2 text-yellow-700 dark:text-yellow-300 underline hover:no-underline"
+		>
+		  Refresh data
+		</button>
 	  </div>
 	{/if}
   </div>

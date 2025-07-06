@@ -2,28 +2,20 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { authStore } from '$lib/stores/auth';
+    import { apiClient } from '$lib/api/client';
     import { goto } from '$app/navigation';
-    
-    interface Issue {
-      id: string;
-      title: string;
-      description?: string;
-      status: 'OPEN' | 'TRIAGED' | 'IN_PROGRESS' | 'DONE';
-      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-      created_at: string;
-      updated_at: string;
-      created_by: string;
-      assigned_to?: string;
-      tags?: string;
-    }
+    import { toastStore } from '$lib/stores/toast';
+    import type { Issue } from '$lib/types';
     
     let issues: Issue[] = [];
     let loading = true;
     let error = '';
     
-    $: token = $authStore.token;
+    $: isAuthenticated = $authStore.isAuthenticated;
     
     onMount(() => {
+      if (!isAuthenticated) return;
+      
       loadRecentIssues();
       
       // Listen for real-time updates
@@ -43,23 +35,20 @@
     });
     
     async function loadRecentIssues() {
-      if (!token) return;
-      
       try {
         loading = true;
         error = '';
         
-        const response = await fetch('http://localhost:8000/api/issues?limit=10', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        // Fixed: Remove the parameter since getIssues() doesn't accept any
+        const response = await apiClient.getIssues();
         
-        if (response.ok) {
-          const data = await response.json();
-          issues = Array.isArray(data) ? data.slice(0, 10) : [];
+        if (response.data) {
+          // Sort by created_at descending and take first 10
+          issues = response.data
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+            .slice(0, 10);
         } else {
-          error = 'Failed to load recent issues';
+          error = response.error || 'Failed to load recent issues';
         }
       } catch (err) {
         error = 'Network error loading issues';
@@ -72,9 +61,9 @@
     function getStatusColor(status: Issue['status']): string {
       switch (status) {
         case 'OPEN': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-        case 'TRIAGED': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
         case 'IN_PROGRESS': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-        case 'DONE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+        case 'RESOLVED': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+        case 'CLOSED': return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
         default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
       }
     }
@@ -135,11 +124,12 @@
         <div class="text-gray-500 dark:text-gray-400 mb-4">
           <span class="text-4xl">📝</span>
         </div>
-        <p class="text-gray-600 dark:text-gray-400">No issues found</p>
+        <p class="text-gray-600 dark:text-gray-400 mb-4">No issues found</p>
         <button 
           on:click={() => goto('/issues/create')}
-          class="mt-2 text-blue-600 dark:text-blue-400 hover:underline"
+          class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
         >
+          <span class="mr-2">➕</span>
           Create your first issue
         </button>
       </div>
@@ -160,11 +150,13 @@
                     {issue.title}
                   </h3>
                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {getStatusColor(issue.status)}">
-                    {issue.status}
+                    {issue.status.replace('_', ' ')}
                   </span>
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {getSeverityColor(issue.severity)}">
-                    {issue.severity}
-                  </span>
+                  {#if issue.severity}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {getSeverityColor(issue.severity)}">
+                      {issue.severity}
+                    </span>
+                  {/if}
                 </div>
                 
                 {#if issue.description}
@@ -175,15 +167,7 @@
                 
                 <div class="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
                   <span>{formatDate(issue.created_at)}</span>
-                  {#if issue.tags}
-                    <span class="flex items-center">
-                      <span class="mr-1">🏷️</span>
-                      {issue.tags.split(',').slice(0, 2).join(', ')}
-                      {#if issue.tags.split(',').length > 2}
-                        <span class="ml-1">+{issue.tags.split(',').length - 2}</span>
-                      {/if}
-                    </span>
-                  {/if}
+                  <span>#{issue.id.slice(0, 8)}</span>
                 </div>
               </div>
               
