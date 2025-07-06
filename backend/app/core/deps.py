@@ -1,3 +1,5 @@
+# backend/app/core/deps.py
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -10,12 +12,12 @@ from app.core.config import settings
 # Define the OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-
 # Get the current logged-in user from JWT token
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -30,6 +32,29 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
+# WebSocket authentication (doesn't use Depends)
+async def get_current_user_websocket(token: str) -> User:
+    """Authenticate user for WebSocket connections."""
+    from app.db.session import SessionLocal
+    
+    credentials_exception = Exception("Could not validate credentials")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user is None:
+            raise credentials_exception
+        return user
+    finally:
+        db.close()
 
 #  Require a specific role (e.g., ADMIN only)
 def require_role(required_role: RoleEnum):
@@ -41,7 +66,6 @@ def require_role(required_role: RoleEnum):
             )
         return current_user
     return role_checker
-
 
 #  Require any of the given roles (e.g., ADMIN or MAINTAINER)
 def require_roles(*roles: RoleEnum):
