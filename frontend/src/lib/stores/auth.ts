@@ -26,7 +26,10 @@ function createAuthStore() {
     
     // Initialize auth state from localStorage
     init: async () => {
-      if (!browser) return;
+      if (!browser) {
+        set({ ...initialState, isLoading: false });
+        return;
+      }
       
       const token = localStorage.getItem('access_token');
       if (token) {

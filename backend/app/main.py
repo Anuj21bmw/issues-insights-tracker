@@ -1,4 +1,4 @@
-# backend/app/main.py - Fixed version
+# backend/app/main.py - Fixed version with dashboard router
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,7 +10,7 @@ import logging
 import os
 
 # Import existing routers
-from app.api import auth, issue
+from app.api import auth, issue, dashboard
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     
     # Start background scheduler (optional)
     try:
-        from app.worker.scheduler import start_scheduler
+        from app.workers.scheduler import start_scheduler
         start_scheduler()
         logger.info("Background scheduler started")
     except ImportError:
@@ -49,8 +49,8 @@ app = FastAPI(
     title="Issues & Insights Tracker",
     description="A comprehensive issue tracking system with real-time updates",
     version="1.0.0",
-    docs_url="/docs",  # Changed from /api/docs to /docs
-    redoc_url="/redoc",  # Changed from /api/redoc to /redoc
+    docs_url="/docs",
+    redoc_url="/redoc",
     lifespan=lifespan
 )
 
@@ -74,9 +74,10 @@ app.add_middleware(
 if os.path.exists("uploads"):
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Include routers - FIXED: Remove websocket router that doesn't exist
+# Include routers - FIXED: Include dashboard router
 app.include_router(auth.router, prefix="/api")
 app.include_router(issue.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 
 # Try to include websocket router if it exists
 try:

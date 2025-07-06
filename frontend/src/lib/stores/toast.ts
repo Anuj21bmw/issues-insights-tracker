@@ -1,11 +1,11 @@
-
-// File: frontend/src/lib/stores/toast.ts
+// frontend/src/lib/stores/toast.ts
 
 import { writable } from 'svelte/store';
 
 export interface Toast {
   id: string;
   type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
   message: string;
   duration?: number;
 }
@@ -39,18 +39,23 @@ function createToastStore() {
 
   return {
     subscribe,
+    // Fixed: Add the missing 'add' method
+    add: addToast,
     // Function overloads to support both single and double parameters
-    success: (message: string, duration: number = 5000) => 
-      addToast({ type: 'success', message, duration }),
-    error: (message: string, duration: number = 5000) => 
-      addToast({ type: 'error', message, duration }),
-    warning: (message: string, duration: number = 5000) => 
-      addToast({ type: 'warning', message, duration }),
-    info: (message: string, duration: number = 5000) => 
-      addToast({ type: 'info', message, duration }),
+    success: (title: string, message: string = '', duration: number = 5000) => 
+      addToast({ type: 'success', title, message, duration }),
+    error: (title: string, message: string = '', duration: number = 5000) => 
+      addToast({ type: 'error', title, message, duration }),
+    warning: (title: string, message: string = '', duration: number = 5000) => 
+      addToast({ type: 'warning', title, message, duration }),
+    info: (title: string, message: string = '', duration: number = 5000) => 
+      addToast({ type: 'info', title, message, duration }),
     remove: removeToast,
     clear: () => update(() => [])
   };
 }
 
 export const toastStore = createToastStore();
+
+// Export default toasts for easier access
+export const toasts = toastStore;
