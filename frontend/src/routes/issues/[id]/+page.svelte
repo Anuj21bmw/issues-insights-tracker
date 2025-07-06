@@ -1,230 +1,135 @@
-<!-- frontend/src/routes/issues/[id]/+page.svelte -->
+<!-- src/routes/issues/[id]/+page.svelte -->
 <script lang="ts">
     import { page } from '$app/stores';
-    import { onMount } from 'svelte';
-    import { authStore } from '$lib/stores/auth';
-    import { toastStore } from '$lib/stores/toast';
     import { goto } from '$app/navigation';
-    
-    interface Issue {
-      id: string;
-      title: string;
-      description?: string;
-      status: 'OPEN' | 'TRIAGED' | 'IN_PROGRESS' | 'DONE';
-      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-      created_at: string;
-      updated_at: string;
-      created_by: string;
-      assigned_to?: string;
-      tags?: string;
-      file_path?: string;
-    }
-    
+    import { onMount } from 'svelte';
+    import type { Issue, IssueStatus } from '$lib/types';
+    import { toasts } from '$lib/stores/toast';
+  
     let issue: Issue | null = null;
     let loading = true;
     let error = '';
-    let editing = false;
-    let saving = false;
-    
-    // Edit form data
-    let editTitle = '';
-    let editDescription = '';
-    let editStatus: Issue['status'] = 'OPEN';
-    let editSeverity: Issue['severity'] = 'MEDIUM';
-    let editTags = '';
-    
+    let updating = false;
+  
     $: issueId = $page.params.id;
-    $: token = $authStore.token;
-    $: user = $authStore.user;
-    $: canEdit = user && (user.role === 'ADMIN' || user.role === 'MAINTAINER' || 
-      (user.role === 'REPORTER' && issue?.created_by === user.id));
-    $: canDelete = user?.role === 'ADMIN';
-    
+  
     onMount(() => {
-      if (!$authStore.isAuthenticated) {
-        goto('/auth/login');
-        return;
-      }
-      
       loadIssue();
-      
-      // Listen for real-time updates
-      const handleIssueUpdated = (event: CustomEvent) => {
-        const updatedIssue = event.detail;
-        if (updatedIssue.id === issueId) {
-          issue = updatedIssue;
-          toastStore.info('Issue updated by another user');
-        }
-      };
-      
-      const handleIssueDeleted = (event: CustomEvent) => {
-        const { id } = event.detail;
-        if (id === issueId) {
-          toastStore.warning('This issue was deleted');
-          goto('/issues');
-        }
-      };
-      
-      window.addEventListener('issue-updated', handleIssueUpdated as EventListener);
-      window.addEventListener('issue-deleted', handleIssueDeleted as EventListener);
-      
-      return () => {
-        window.removeEventListener('issue-updated', handleIssueUpdated as EventListener);
-        window.removeEventListener('issue-deleted', handleIssueDeleted as EventListener);
-      };
     });
-    
-    async function loadIssue() {
-      if (!token || !issueId) return;
-      
+  
+    async function loadIssue(): Promise<void> {
       try {
-        loading = true;
-        error = '';
-        
+        const token = localStorage.getItem('access_token');
         const response = await fetch(`http://localhost:8000/api/issues/${issueId}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
-        
+  
         if (response.ok) {
           issue = await response.json();
-          // Initialize edit form with current values
-          if (issue) {
-            editTitle = issue.title;
-            editDescription = issue.description || '';
-            editStatus = issue.status;
-            editSeverity = issue.severity;
-            editTags = issue.tags || '';
-          }
-        } else if (response.status === 404) {
-          error = 'Issue not found';
-        } else if (response.status === 403) {
-          error = 'Access denied';
         } else {
-          error = 'Failed to load issue';
+          error = 'Issue not found';
         }
       } catch (err) {
-        error = 'Network error loading issue';
-        console.error('Issue detail error:', err);
+        error = 'Failed to load issue';
       } finally {
         loading = false;
       }
     }
-    
-    async function handleSave() {
-      if (!token || !issue || saving) return;
+  
+    async function updateStatus(newStatus: IssueStatus): Promise<void> {
+      if (!issue) return;
       
+      updating = true;
       try {
-        saving = true;
-        
-        const updateData: any = {};
-        
-        // Only include changed fields
-        if (editTitle !== issue.title) updateData.title = editTitle;
-        if (editDescription !== (issue.description || '')) updateData.description = editDescription;
-        if (editStatus !== issue.status) updateData.status = editStatus;
-        if (editSeverity !== issue.severity) updateData.severity = editSeverity;
-        if (editTags !== (issue.tags || '')) updateData.tags = editTags;
-        
-        if (Object.keys(updateData).length === 0) {
-          editing = false;
-          return;
-        }
-        
-        const response = await fetch(`http://localhost:8000/api/issues/${issue.id}`, {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch(`http://localhost:8000/api/issues/${issueId}`, {
           method: 'PUT',
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify(updateData)
+          body: JSON.stringify({
+            title: issue.title,
+            description: issue.description,
+            status: newStatus
+          })
         });
-        
+  
         if (response.ok) {
-          const updatedIssue = await response.json();
-          issue = updatedIssue;
-          editing = false;
-          toastStore.success('Issue updated successfully');
+          issue = await response.json();
+          toasts.success('Status Updated', `Issue status changed to ${newStatus.replace('_', ' ')}`);
         } else {
-          const error = await response.json();
-          toastStore.error(error.detail || 'Failed to update issue');
+          toasts.error('Update Failed', 'Failed to update issue status');
         }
-      } catch (error) {
-        console.error('Update issue error:', error);
-        toastStore.error('Network error. Please try again.');
+      } catch (err) {
+        toasts.error('Network Error', 'Failed to update issue status');
       } finally {
-        saving = false;
+        updating = false;
       }
     }
-    
-    async function handleDelete() {
-      if (!token || !issue || !canDelete) return;
-      
-      if (!confirm('Are you sure you want to delete this issue? This action cannot be undone.')) {
-        return;
-      }
+  
+    async function deleteIssue(): Promise<void> {
+      if (!confirm('Are you sure you want to delete this issue?')) return;
       
       try {
-        const response = await fetch(`http://localhost:8000/api/issues/${issue.id}`, {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch(`http://localhost:8000/api/issues/${issueId}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
-        
+  
         if (response.ok) {
-          toastStore.success('Issue deleted successfully');
+          toasts.success('Issue Deleted', 'Issue has been deleted successfully');
           goto('/issues');
         } else {
-          const error = await response.json();
-          toastStore.error(error.detail || 'Failed to delete issue');
+          toasts.error('Delete Failed', 'Failed to delete issue');
         }
-      } catch (error) {
-        console.error('Delete issue error:', error);
-        toastStore.error('Network error. Please try again.');
+      } catch (err) {
+        toasts.error('Network Error', 'Failed to delete issue');
       }
     }
-    
-    function startEditing() {
-      if (!canEdit) return;
-      editing = true;
-    }
-    
-    function cancelEditing() {
-      if (!issue) return;
-      
-      // Reset form to original values
-      editTitle = issue.title;
-      editDescription = issue.description || '';
-      editStatus = issue.status;
-      editSeverity = issue.severity;
-      editTags = issue.tags || '';
-      editing = false;
-    }
-    
-    function getStatusColor(status: Issue['status']): string {
+  
+    function getStatusColor(status: IssueStatus): string {
       switch (status) {
-        case 'OPEN': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-        case 'TRIAGED': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-        case 'IN_PROGRESS': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-        case 'DONE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-        default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+        case 'OPEN':
+          return 'bg-red-100 text-red-800 border-red-200';
+        case 'IN_PROGRESS':
+          return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        case 'RESOLVED':
+          return 'bg-green-100 text-green-800 border-green-200';
+        case 'CLOSED':
+          return 'bg-gray-100 text-gray-800 border-gray-200';
+        default:
+          return 'bg-gray-100 text-gray-800 border-gray-200';
       }
     }
-    
-    function getSeverityColor(severity: Issue['severity']): string {
-      switch (severity) {
-        case 'LOW': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-        case 'MEDIUM': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-        case 'HIGH': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
-        case 'CRITICAL': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-        default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+  
+    function getStatusIcon(status: IssueStatus): string {
+      switch (status) {
+        case 'OPEN':
+          return 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z';
+        case 'IN_PROGRESS':
+          return 'M10 18a8 8 0 100-16 8 8 0 000 16zm-1-4a1 1 0 112 0v-4a1 1 0 11-2 0v4zm0-8a1 1 0 112 0 1 1 0 01-2 0z';
+        case 'RESOLVED':
+          return 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z';
+        case 'CLOSED':
+          return 'M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z';
+        default:
+          return '';
       }
     }
-    
+  
+    function getAvailableStatuses(currentStatus: IssueStatus): IssueStatus[] {
+      const allStatuses: IssueStatus[] = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+      return allStatuses.filter(status => status !== currentStatus);
+    }
+  
     function formatDate(dateString: string): string {
-      return new Date(dateString).toLocaleString('en-US', {
+      return new Date(dateString).toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
@@ -232,250 +137,202 @@
         minute: '2-digit'
       });
     }
-    
-    function getFileIcon(fileName: string): string {
-      const ext = fileName.split('.').pop()?.toLowerCase();
-      switch (ext) {
-        case 'pdf': return '📄';
-        case 'jpg':
-        case 'jpeg':
-        case 'png':
-        case 'gif': return '🖼️';
-        case 'doc':
-        case 'docx': return '📝';
-        case 'txt': return '📋';
-        case 'csv': return '📊';
-        default: return '📎';
-      }
-    }
-    
-    function downloadFile() {
-      if (issue?.file_path) {
-        window.open(`http://localhost:8000/uploads/${issue.file_path.split('/').pop()}`, '_blank');
-      }
-    }
   </script>
   
   <svelte:head>
-    <title>{issue ? issue.title : 'Issue'} - Issues & Insights Tracker</title>
+    <title>{issue ? `${issue.title} - Issue Tracker` : 'Loading - Issue Tracker'}</title>
   </svelte:head>
   
-  <div class="max-w-4xl mx-auto space-y-6">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
     {#if loading}
-      <div class="flex items-center justify-center py-12">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <span class="ml-3 text-gray-600 dark:text-gray-400">Loading issue...</span>
+      <div class="animate-pulse">
+        <div class="mb-8">
+          <div class="h-4 bg-gray-200 rounded w-1/4 mb-4"></div>
+          <div class="h-8 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+        </div>
+        <div class="bg-white shadow rounded-lg p-6">
+          <div class="space-y-4">
+            <div class="h-4 bg-gray-200 rounded w-full"></div>
+            <div class="h-4 bg-gray-200 rounded w-5/6"></div>
+            <div class="h-4 bg-gray-200 rounded w-4/6"></div>
+          </div>
+        </div>
       </div>
     {:else if error}
       <div class="text-center py-12">
-        <div class="text-red-600 dark:text-red-400 mb-4">
-          <span class="text-6xl">❌</span>
+        <svg class="mx-auto h-12 w-12 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">Error</h3>
+        <p class="mt-1 text-sm text-gray-500">{error}</p>
+        <div class="mt-6">
+          <a href="/issues" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+            Back to Issues
+          </a>
         </div>
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">Issue Not Found</h2>
-        <p class="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
-        <button 
-          on:click={() => goto('/issues')}
-          class="text-blue-600 dark:text-blue-400 hover:underline"
-        >
-          ← Back to Issues
-        </button>
       </div>
     {:else if issue}
-      <!-- Header -->
-      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div class="flex-1">
-          <nav class="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400 mb-4">
-            <a href="/issues" class="hover:text-gray-700 dark:hover:text-gray-300">Issues</a>
-            <span>›</span>
-            <span class="text-gray-900 dark:text-white">{issue.title}</span>
-          </nav>
-          
-          {#if editing}
-            <input
-              bind:value={editTitle}
-              class="text-3xl font-bold bg-transparent border-b-2 border-blue-500 text-gray-900 dark:text-white focus:outline-none w-full"
-              disabled={saving}
-            />
-          {:else}
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{issue.title}</h1>
-          {/if}
-          
-          <div class="flex flex-wrap items-center gap-4 mt-4">
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {getStatusColor(editing ? editStatus : issue.status)}">
-              {#if editing}
-                <select bind:value={editStatus} disabled={saving} class="bg-transparent border-none outline-none">
-                  <option value="OPEN">OPEN</option>
-                  <option value="TRIAGED">TRIAGED</option>
-                  <option value="IN_PROGRESS">IN_PROGRESS</option>
-                  <option value="DONE">DONE</option>
-                </select>
-              {:else}
-                {issue.status.replace('_', ' ')}
-              {/if}
-            </span>
-            
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {getSeverityColor(editing ? editSeverity : issue.severity)}">
-              {#if editing}
-                <select bind:value={editSeverity} disabled={saving} class="bg-transparent border-none outline-none">
-                  <option value="LOW">LOW</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="HIGH">HIGH</option>
-                  <option value="CRITICAL">CRITICAL</option>
-                </select>
-              {:else}
-                {issue.severity}
-              {/if}
-            </span>
-            
-            <span class="text-sm text-gray-500 dark:text-gray-400">
-              ID: {issue.id.split('-')[0]}...
+      <!-- Breadcrumb -->
+      <nav class="flex mb-8" aria-label="Breadcrumb">
+        <ol class="flex items-center space-x-4">
+          <li>
+            <div>
+              <a href="/issues" class="text-gray-400 hover:text-gray-500">
+                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+                </svg>
+                <span class="sr-only">Back</span>
+              </a>
+            </div>
+          </li>
+          <li>
+            <div class="flex items-center">
+              <svg class="h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+              </svg>
+              <a href="/issues" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">Issues</a>
+            </div>
+          </li>
+          <li>
+            <div class="flex items-center">
+              <svg class="h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+              </svg>
+              <span class="ml-4 text-sm font-medium text-gray-500">#{issue.id.slice(0, 8)}</span>
+            </div>
+          </li>
+        </ol>
+      </nav>
+  
+      <!-- Issue Header -->
+      <div class="mb-8">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">{issue.title}</h1>
+            <div class="flex items-center space-x-4 text-sm text-gray-500">
+              <span>Created {formatDate(issue.created_at)}</span>
+              <span>•</span>
+              <span>ID: {issue.id.slice(0, 8)}</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-3">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border {getStatusColor(issue.status)}">
+              <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="{getStatusIcon(issue.status)}" clip-rule="evenodd" />
+              </svg>
+              {issue.status.replace('_', ' ')}
             </span>
           </div>
-        </div>
-        
-        <!-- Actions -->
-        <div class="flex items-center space-x-2">
-          {#if editing}
-            <button
-              on:click={cancelEditing}
-              disabled={saving}
-              class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              on:click={handleSave}
-              disabled={saving}
-              class="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          {:else}
-            {#if canEdit}
-              <button
-                on:click={startEditing}
-                class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
-              >
-                Edit
-              </button>
-            {/if}
-            
-            {#if canDelete}
-              <button
-                on:click={handleDelete}
-                class="px-4 py-2 border border-red-300 dark:border-red-600 rounded-md text-sm font-medium text-red-700 dark:text-red-300 bg-white dark:bg-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-              >
-                Delete
-              </button>
-            {/if}
-          {/if}
         </div>
       </div>
-      
-      <!-- Content -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <!-- Main Content -->
-        <div class="lg:col-span-2 space-y-6">
-          <!-- Description -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Description</h2>
-            
-            {#if editing}
-              <textarea
-                bind:value={editDescription}
-                placeholder="Issue description..."
-                rows="8"
-                disabled={saving}
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 resize-vertical"
-              ></textarea>
-            {:else if issue.description}
-              <div class="prose dark:prose-invert max-w-none">
-                <pre class="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans">{issue.description}</pre>
-              </div>
-            {:else}
-              <p class="text-gray-500 dark:text-gray-400 italic">No description provided</p>
-            {/if}
-          </div>
-          
-          <!-- Attachment -->
-          {#if issue.file_path}
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Attachment</h2>
-              
-              <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                <div class="flex items-center space-x-3">
-                  <span class="text-2xl">{getFileIcon(issue.file_path)}</span>
-                  <div>
-                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                      {issue.file_path.split('/').pop()}
-                    </p>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">Attachment</p>
-                  </div>
+        <div class="lg:col-span-2">
+          <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+              <h3 class="text-lg font-medium text-gray-900">Description</h3>
+            </div>
+            <div class="px-6 py-4">
+              {#if issue.description}
+                <div class="prose max-w-none text-gray-700 whitespace-pre-wrap">
+                  {issue.description}
                 </div>
-                <button
-                  on:click={downloadFile}
-                  class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+              {:else}
+                <p class="text-gray-500 italic">No description provided.</p>
+              {/if}
+            </div>
+          </div>
+        </div>
+  
+        <!-- Sidebar -->
+        <div class="space-y-6">
+          <!-- Actions -->
+          <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+              <h3 class="text-lg font-medium text-gray-900 mb-4">Actions</h3>
+              
+              <div class="space-y-3">
+                <a
+                  href="/issues/{issue.id}/edit"
+                  class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
-                  Download
+                  <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit Issue
+                </a>
+  
+                <button
+                  on:click={deleteIssue}
+                  class="w-full inline-flex items-center justify-center px-4 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete Issue
                 </button>
               </div>
             </div>
-          {/if}
-        </div>
-        
-        <!-- Sidebar -->
-        <div class="space-y-6">
-          <!-- Details -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Details</h2>
-            
-            <dl class="space-y-4">
-              <div>
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Created</dt>
-                <dd class="text-sm text-gray-900 dark:text-white">{formatDate(issue.created_at)}</dd>
-              </div>
-              
-              <div>
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Updated</dt>
-                <dd class="text-sm text-gray-900 dark:text-white">{formatDate(issue.updated_at)}</dd>
-              </div>
-              
-              <div>
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Reporter</dt>
-                <dd class="text-sm text-gray-900 dark:text-white">{issue.created_by}</dd>
-              </div>
-              
-              {#if issue.assigned_to}
-                <div>
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Assignee</dt>
-                  <dd class="text-sm text-gray-900 dark:text-white">{issue.assigned_to}</dd>
-                </div>
-              {/if}
-            </dl>
           </div>
-          
-          <!-- Tags -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Tags</h2>
-            
-            {#if editing}
-              <input
-                bind:value={editTags}
-                placeholder="tag1, tag2, tag3"
-                disabled={saving}
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-              />
-            {:else if issue.tags}
-              <div class="flex flex-wrap gap-2">
-                {#each issue.tags.split(',') as tag}
-                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
-                    {tag.trim()}
-                  </span>
+  
+          <!-- Status Change -->
+          <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+              <h3 class="text-lg font-medium text-gray-900 mb-4">Change Status</h3>
+              
+              <div class="space-y-2">
+                {#each getAvailableStatuses(issue.status) as status}
+                  <button
+                    on:click={() => updateStatus(status)}
+                    disabled={updating}
+                    class="w-full text-left px-3 py-2 text-sm rounded-md border border-gray-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <div class="flex items-center">
+                      <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium {getStatusColor(status)}">
+                        {status.replace('_', ' ')}
+                      </span>
+                    </div>
+                  </button>
                 {/each}
               </div>
-            {:else}
-              <p class="text-gray-500 dark:text-gray-400 text-sm">No tags</p>
-            {/if}
+            </div>
+          </div>
+  
+          <!-- Metadata -->
+          <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+              <h3 class="text-lg font-medium text-gray-900 mb-4">Details</h3>
+              
+              <dl class="space-y-3">
+                <div>
+                  <dt class="text-sm font-medium text-gray-500">Status</dt>
+                  <dd class="mt-1">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {getStatusColor(issue.status)}">
+                      {issue.status.replace('_', ' ')}
+                    </span>
+                  </dd>
+                </div>
+                
+                <div>
+                  <dt class="text-sm font-medium text-gray-500">Created</dt>
+                  <dd class="mt-1 text-sm text-gray-900">{formatDate(issue.created_at)}</dd>
+                </div>
+  
+                {#if issue.updated_at && issue.updated_at !== issue.created_at}
+                  <div>
+                    <dt class="text-sm font-medium text-gray-500">Last Updated</dt>
+                    <dd class="mt-1 text-sm text-gray-900">{formatDate(issue.updated_at)}</dd>
+                  </div>
+                {/if}
+  
+                <div>
+                  <dt class="text-sm font-medium text-gray-500">Issue ID</dt>
+                  <dd class="mt-1 text-sm text-gray-900 font-mono">{issue.id}</dd>
+                </div>
+              </dl>
+            </div>
           </div>
         </div>
       </div>

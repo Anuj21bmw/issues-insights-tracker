@@ -1,9 +1,8 @@
-# backend/app/schemas/user.py - Updated to include name field
+# backend/app/schemas/user.py
 from pydantic import BaseModel, EmailStr
 from enum import Enum
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
 
 class RoleEnum(str, Enum):
     ADMIN = "ADMIN"
@@ -12,7 +11,7 @@ class RoleEnum(str, Enum):
 
 # Input for registration
 class UserCreate(BaseModel):
-    name: Optional[str] = None
+    name: str
     email: EmailStr
     password: str
     role: RoleEnum = RoleEnum.REPORTER
@@ -25,15 +24,12 @@ class UserLogin(BaseModel):
 # Output schema (used in /me response)
 class UserOut(BaseModel):
     id: UUID
-    name: Optional[str]
+    name: str
     email: EmailStr
     role: RoleEnum
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
 
     class Config:
-        from_attributes = True
+        from_attributes = True  # Use this for Pydantic v2
 
 # Returned by login/register API
 class Token(BaseModel):

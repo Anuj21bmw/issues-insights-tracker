@@ -1,4 +1,4 @@
-# backend/app/services/user_service.py - Updated to handle name field
+# backend/app/services/user_service.py
 from sqlalchemy.orm import Session
 from app.models.user import User
 from app.schemas.user import UserCreate
@@ -9,10 +9,10 @@ def get_user_by_email(db: Session, email: str):
 
 def create_user(db: Session, user: UserCreate):
     db_user = User(
-        name=user.name,
         email=user.email,
         hashed_password=get_password_hash(user.password),
-        role=user.role
+        role=user.role,
+        name=user.name 
     )
     db.add(db_user)
     db.commit()

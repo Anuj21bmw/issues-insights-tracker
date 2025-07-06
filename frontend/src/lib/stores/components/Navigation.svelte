@@ -14,7 +14,11 @@
   
   function handleLogout() {
     authStore.logout();
-    toastStore.success('Logged out successfully');
+    toastStore.add({
+      type: 'success',
+      title: 'Logged Out',
+      message: 'You have been logged out successfully'
+    });
     goto('/');
     userMenuOpen = false;
   }
@@ -59,6 +63,15 @@
         {#if isAuthenticated}
           <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
             <a
+              href="/dashboard"
+              class="inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium transition-colors
+                {isCurrentPath('/dashboard') 
+                  ? 'border-blue-500 text-gray-900' 
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+            >
+              Dashboard
+            </a>
+            <a
               href="/issues"
               class="inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium transition-colors
                 {isCurrentPath('/issues') 
@@ -68,9 +81,9 @@
               Issues
             </a>
             <a
-              href="/issues/create"
+              href="/issues/new"
               class="inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium transition-colors
-                {isCurrentPath('/issues/create') 
+                {isCurrentPath('/issues/new') 
                   ? 'border-blue-500 text-gray-900' 
                   : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
             >
@@ -104,9 +117,9 @@
               <span class="sr-only">Open user menu</span>
               <div class="flex items-center space-x-3 rounded-full bg-gray-100 px-3 py-2">
                 <div class="h-6 w-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-medium">
-                  {user.email.charAt(0).toUpperCase()}
+                  {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
                 </div>
-                <span class="text-sm font-medium text-gray-700">{user.email}</span>
+                <span class="text-sm font-medium text-gray-700">{user.name || user.email}</span>
                 <svg class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
@@ -117,7 +130,7 @@
               <div class="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
                 <div class="px-4 py-2 border-b border-gray-100">
                   <p class="text-sm text-gray-500">Signed in as</p>
-                  <p class="text-sm font-medium text-gray-900">{user.email}</p>
+                  <p class="text-sm font-medium text-gray-900">{user.name || user.email}</p>
                   <p class="text-xs text-gray-500 capitalize">{user.role.toLowerCase()} Role</p>
                 </div>
                 <a
@@ -185,6 +198,16 @@
       <div class="space-y-1 border-t border-gray-200 pb-3 pt-2">
         {#if isAuthenticated}
           <a
+            href="/dashboard"
+            class="block border-l-4 py-2 pl-3 pr-4 text-base font-medium
+              {isCurrentPath('/dashboard') 
+                ? 'border-blue-500 bg-blue-50 text-blue-700' 
+                : 'border-transparent text-gray-600 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800'}"
+            on:click={closeMobileMenu}
+          >
+            Dashboard
+          </a>
+          <a
             href="/issues"
             class="block border-l-4 py-2 pl-3 pr-4 text-base font-medium
               {isCurrentPath('/issues') 
@@ -195,9 +218,9 @@
             Issues
           </a>
           <a
-            href="/issues/create"
+            href="/issues/new"
             class="block border-l-4 py-2 pl-3 pr-4 text-base font-medium
-              {isCurrentPath('/issues/create') 
+              {isCurrentPath('/issues/new') 
                 ? 'border-blue-500 bg-blue-50 text-blue-700' 
                 : 'border-transparent text-gray-600 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800'}"
             on:click={closeMobileMenu}
@@ -223,10 +246,10 @@
         <div class="border-t border-gray-200 pb-3 pt-4">
           <div class="flex items-center px-4">
             <div class="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-medium">
-              {user.email.charAt(0).toUpperCase()}
+              {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
             </div>
             <div class="ml-3">
-              <div class="text-base font-medium text-gray-800">{user.email}</div>
+              <div class="text-base font-medium text-gray-800">{user.name || user.email}</div>
               <div class="text-sm font-medium text-gray-500 capitalize">{user.role.toLowerCase()}</div>
             </div>
           </div>

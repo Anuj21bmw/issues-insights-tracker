@@ -11,35 +11,21 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 def get_dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Get dashboard statistics including issue counts by status"""
+    # Get issue counts by status
+    total_issues = db.query(Issue).count()
+    open_issues = db.query(Issue).filter(Issue.status == IssueStatus.OPEN).count()
+    in_progress_issues = db.query(Issue).filter(Issue.status == IssueStatus.IN_PROGRESS).count()
+    resolved_issues = db.query(Issue).filter(Issue.status == IssueStatus.RESOLVED).count()
+    closed_issues = db.query(Issue).filter(Issue.status == IssueStatus.CLOSED).count()
     
-    # Get status breakdown
-    status_breakdown = (
-        db.query(Issue.status, func.count(Issue.id).label('count'))
-        .group_by(Issue.status)
-        .all()
-    )
-    
-    # Convert to the format expected by frontend
-    status_data = [
-        {"status": status.value, "count": count} 
-        for status, count in status_breakdown
-    ]
-    
-    # For severity, we'll create mock data since your model doesn't have severity
-    # You can add a severity field to your Issue model later
-    severity_data = [
-        {"severity": "LOW", "count": 0},
-        {"severity": "MEDIUM", "count": 0}, 
-        {"severity": "HIGH", "count": 0},
-        {"severity": "CRITICAL", "count": 0}
-    ]
-    
-    # Get total open issues
-    total_open = db.query(Issue).filter(Issue.status == IssueStatus.OPEN).count()
+    # Get recent issues (last 5)
+    recent_issues = db.query(Issue).order_by(Issue.created_at.desc()).limit(5).all()
     
     return {
-        "status_breakdown": status_data,
-        "severity_breakdown": severity_data,
-        "total_open": total_open
+        "total_issues": total_issues,
+        "open_issues": open_issues,
+        "in_progress_issues": in_progress_issues,
+        "resolved_issues": resolved_issues,
+        "closed_issues": closed_issues,
+        "recent_issues": recent_issues
     }
