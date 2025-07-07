@@ -2,7 +2,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { authStore } from '$lib/stores/auth';
-  import { toastStore } from '$lib/stores/toast';
+  import { toasts } from '$lib/stores/toast';
   import { goto } from '$app/navigation';
   
   $: isAuthenticated = $authStore.isAuthenticated;
@@ -14,11 +14,7 @@
   
   function handleLogout() {
     authStore.logout();
-    toastStore.add({
-      type: 'success',
-      title: 'Logged Out',
-      message: 'You have been logged out successfully'
-    });
+    toasts.success('Logged Out', 'You have been logged out successfully');
     goto('/');
     userMenuOpen = false;
   }
@@ -81,9 +77,9 @@
               Issues
             </a>
             <a
-              href="/issues/new"
+              href="/issues/create"
               class="inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium transition-colors
-                {isCurrentPath('/issues/new') 
+                {isCurrentPath('/issues/create') 
                   ? 'border-blue-500 text-gray-900' 
                   : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
             >
@@ -218,9 +214,9 @@
             Issues
           </a>
           <a
-            href="/issues/new"
+            href="/issues/create"
             class="block border-l-4 py-2 pl-3 pr-4 text-base font-medium
-              {isCurrentPath('/issues/new') 
+              {isCurrentPath('/issues/create') 
                 ? 'border-blue-500 bg-blue-50 text-blue-700' 
                 : 'border-transparent text-gray-600 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800'}"
             on:click={closeMobileMenu}

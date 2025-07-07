@@ -1,8 +1,8 @@
-# backend/app/models/issue.py - Fixed circular import
+# backend/app/models/issue.py
 from sqlalchemy import Column, String, Text, Enum, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from app.db.base_class import Base  # Import from base_class, not base
+from app.db.base_class import Base
 from datetime import datetime
 import uuid
 import enum
