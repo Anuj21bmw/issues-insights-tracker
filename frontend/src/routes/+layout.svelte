@@ -1,14 +1,17 @@
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
 	import '../app.css';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
-	import ToastContainer from '$lib/stores/components/ToastContainer.svelte';
-	import { toasts } from '$lib/stores/toast';
+import { page } from '$app/stores';
+import { goto } from '$app/navigation';
+import { onMount } from 'svelte';
+import ToastContainer from '$lib/stores/components/ToastContainer.svelte';
+import { toasts } from '$lib/stores/toast';
+import { theme } from '$lib/stores/theme';
   
-	let user: any = null;
-	let showMobileMenu = false;
+let user: any = null;
+let showMobileMenu = false;
+let currentTheme = 'light';
+theme.subscribe((value) => currentTheme = value);
   
 	onMount(() => {
 	  checkAuth();
@@ -22,12 +25,16 @@
 	  }
 	}
   
-	function logout() {
-	  localStorage.removeItem('access_token');
-	  user = null;
-	  toasts.success('Logged Out', 'You have been logged out successfully');
-	  goto('/auth/login');
-	}
+function logout() {
+  localStorage.removeItem('access_token');
+  user = null;
+  toasts.success('Logged Out', 'You have been logged out successfully');
+  goto('/auth/login');
+}
+
+function toggleTheme() {
+  theme.toggle();
+}
   
 	function isActivePath(path: string): boolean {
 	  return $page.url.pathname === path || $page.url.pathname.startsWith(path + '/');
@@ -69,15 +76,32 @@
 		  <!-- Right side -->
 		  <div class="hidden sm:ml-6 sm:flex sm:items-center space-x-4">
 			<!-- Create Issue Button -->
-			<a
-			  href="/issues/new"
-			  class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-			>
-			  <svg class="-ml-1 mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-				<path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-			  </svg>
-			  New Issue
-			</a>
+                        <a
+                          href="/issues/new"
+                          class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                        >
+                          <svg class="-ml-1 mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                          </svg>
+                          New Issue
+                        </a>
+
+                        <button
+                          type="button"
+                          class="rounded-full p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                          aria-label="Toggle dark mode"
+                          on:click={toggleTheme}
+                        >
+                          {#if currentTheme === 'dark'}
+                            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M10 2a1 1 0 01.832.445A5.978 5.978 0 005 8c0 3.314 2.686 6 6 6 1.657 0 3.157-.67 4.24-1.76A1 1 0 1116.73 14.45 8 8 0 1110 2z" />
+                            </svg>
+                          {:else}
+                            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path fill-rule="evenodd" d="M10 5.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9zM10 2a.75.75 0 01.75.75v1.13a.75.75 0 01-1.5 0V2.75A.75.75 0 0110 2zm0 12.37a.75.75 0 011.5 0v1.13a.75.75 0 01-1.5 0v-1.13zM15.45 7.88a.75.75 0 011.06-1.06l.8.8a.75.75 0 11-1.06 1.06l-.8-.8zM4.49 17.76a.75.75 0 01-1.06-1.06l.8-.8a.75.75 0 011.06 1.06l-.8.8zm10.96 2.65a.75.75 0 011.06 0 .75.75 0 010 1.06l-.8.8a.75.75 0 11-1.06-1.06l.8-.8zM3.64 7.88a.75.75 0 111.06-1.06l.8.8a.75.75 0 11-1.06 1.06l-.8-.8z" clip-rule="evenodd" />
+                            </svg>
+                          {/if}
+                        </button>
   
 			<!-- User Menu -->
 			{#if user}
